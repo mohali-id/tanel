@@ -21,19 +21,28 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Get latest tag
+      - name: Get latest tag and bump version
         id: get_tag
         run: |
           latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
           if [ -z "$latest" ]; then
-            echo "version=v0.0.1" >> $GITHUB_OUTPUT
+            major=0; minor=0; patch=0
           else
             major=$(echo $latest | cut -d. -f1 | tr -d v)
             minor=$(echo $latest | cut -d. -f2)
             patch=$(echo $latest | cut -d. -f3)
-            patch=$((patch + 1))
-            echo "version=v${major}.${minor}.${patch}" >> $GITHUB_OUTPUT
           fi
+
+          commit_msg=$(git log -1 --pretty=%B)
+          if echo "$commit_msg" | grep -qi '#major'; then
+            major=$((major + 1)); minor=0; patch=0
+          elif echo "$commit_msg" | grep -qi '#minor'; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          echo "version=v${major}.${minor}.${patch}" >> $GITHUB_OUTPUT
 
       - name: Build binaries
         run: |
