@@ -1,4 +1,4 @@
-name: Build and Release
+name: Test, Build and Release
 
 on:
   push:
@@ -8,18 +8,68 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run tests
+        run: go test -v -count=1 ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build binaries
+        run: |
+          # Linux amd64
+          GOOS=linux GOARCH=amd64 go build -o tanel-server-linux-amd64 server.go
+          GOOS=linux GOARCH=amd64 go build -o tanel-linux-amd64 client.go
+          # Linux arm64
+          GOOS=linux GOARCH=arm64 go build -o tanel-server-linux-arm64 server.go
+          GOOS=linux GOARCH=arm64 go build -o tanel-linux-arm64 client.go
+          # macOS amd64
+          GOOS=darwin GOARCH=amd64 go build -o tanel-server-darwin-amd64 server.go
+          GOOS=darwin GOARCH=amd64 go build -o tanel-darwin-amd64 client.go
+          # macOS arm64
+          GOOS=darwin GOARCH=arm64 go build -o tanel-server-darwin-arm64 server.go
+          GOOS=darwin GOARCH=arm64 go build -o tanel-darwin-arm64 client.go
+          # Windows amd64
+          GOOS=windows GOARCH=amd64 go build -o tanel-server-windows-amd64.exe server.go
+          GOOS=windows GOARCH=amd64 go build -o tanel-windows-amd64.exe client.go
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            tanel-server-*
+            tanel-linux-*
+            tanel-darwin-*
+            tanel-windows-*
+
+  release:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
 
       - name: Get latest tag and bump version
         id: get_tag
@@ -44,26 +94,10 @@ jobs:
 
           echo "version=v${major}.${minor}.${patch}" >> $GITHUB_OUTPUT
 
-      - name: Run tests
-        run: go test -v -count=1 ./...
-
-      - name: Build binaries
-        run: |
-          # Linux amd64
-          GOOS=linux GOARCH=amd64 go build -o tanel-server-linux-amd64 server.go
-          GOOS=linux GOARCH=amd64 go build -o tanel-linux-amd64 client.go
-          # Linux arm64
-          GOOS=linux GOARCH=arm64 go build -o tanel-server-linux-arm64 server.go
-          GOOS=linux GOARCH=arm64 go build -o tanel-linux-arm64 client.go
-          # macOS amd64
-          GOOS=darwin GOARCH=amd64 go build -o tanel-server-darwin-amd64 server.go
-          GOOS=darwin GOARCH=amd64 go build -o tanel-darwin-amd64 client.go
-          # macOS arm64
-          GOOS=darwin GOARCH=arm64 go build -o tanel-server-darwin-arm64 server.go
-          GOOS=darwin GOARCH=arm64 go build -o tanel-darwin-arm64 client.go
-          # Windows amd64
-          GOOS=windows GOARCH=amd64 go build -o tanel-server-windows-amd64.exe server.go
-          GOOS=windows GOARCH=amd64 go build -o tanel-windows-amd64.exe client.go
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries
 
       - name: Create tag
         run: |
