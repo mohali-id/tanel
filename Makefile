@@ -1,4 +1,4 @@
-.PHONY: all build clean server client
+.PHONY: all build clean server client test
 
 BINARY_SERVER = tanel-server
 BINARY_CLIENT = tanel
@@ -12,6 +12,9 @@ server:
 
 client:
 	go build -o $(BINARY_CLIENT) client.go
+
+test:
+	go test -v -count=1 ./...
 
 clean:
 	rm -f $(BINARY_SERVER) $(BINARY_CLIENT)
