@@ -615,7 +615,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============================================================
-// Local forward (with multiplexing)
+// Local forward (simple: 1 WS = 1 TCP)
 // ============================================================
 
 func handleLocalForward(conn *websocket.Conn, token *TokenConfig, parts []string, remoteAddr, tokenValue string, bw *BandwidthLimiter) {
@@ -631,86 +631,54 @@ func handleLocalForward(conn *websocket.Conn, token *TokenConfig, parts []string
 		return
 	}
 
-	mux := NewMuxConn(conn)
 	tunnelID := fmt.Sprintf("lf-%s-%s-%d", remoteAddr, targetAddr, time.Now().UnixNano())
 	info := &TunnelInfo{
 		Token:      maskToken(tokenValue),
 		Mode:       "local-forward",
 		Target:     targetAddr,
+		Streams:    1,
 		StartedAt:  time.Now(),
 		RemoteAddr: remoteAddr,
 	}
 	registry.Add(tunnelID, info)
 	defer registry.Remove(tunnelID)
 
-	logger.Info("Local forward: %s → %s (token: %s)", remoteAddr, targetAddr, maskToken(tokenValue))
-	mux.WriteControl("OK|connected")
+	tcpConn, err := net.Dial("tcp", targetAddr)
+	if err != nil {
+		logger.Error("TCP connect error (%s): %v", targetAddr, err)
+		conn.WriteMessage(websocket.TextMessage, []byte("ERR|tcp connect failed: "+err.Error()))
+		return
+	}
+	defer tcpConn.Close()
 
-	// Read loop: handle multiplexed data and control messages
+	logger.Info("Local forward: %s → %s (token: %s)", remoteAddr, targetAddr, maskToken(tokenValue))
+	conn.WriteMessage(websocket.TextMessage, []byte("OK|connected"))
+
+	// TCP → WS
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := tcpConn.Read(buf)
+			if err != nil {
+				return
+			}
+			bw.WaitAndAllow(n)
+			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+				return
+			}
+		}
+	}()
+
+	// WS → TCP
 	for {
-		msgType, data, err := conn.ReadMessage()
+		_, data, err := conn.ReadMessage()
 		if err != nil {
 			logger.Debug("WS read error (local-forward): %v", err)
-			mux.CloseAll()
 			return
 		}
-
-		if msgType == websocket.TextMessage {
-			// Control message: open:streamID, close:streamID
-			ctrl := string(data)
-			if strings.HasPrefix(ctrl, "open:") {
-				sidStr := strings.TrimPrefix(ctrl, "open:")
-				var sid uint32
-				fmt.Sscanf(sidStr, "%d", &sid)
-
-				tcpConn, err := net.Dial("tcp", targetAddr)
-				if err != nil {
-					logger.Error("TCP connect error (%s): %v", targetAddr, err)
-					mux.WriteControl(fmt.Sprintf("close:%d", sid))
-					continue
-				}
-				mux.AddStream(sid, tcpConn)
-				registry.Update(tunnelID, mux.StreamCount())
-				logger.Debug("Stream %d opened → %s", sid, targetAddr)
-
-				// TCP → WS relay for this stream
-				go func(sid uint32, tcp net.Conn) {
-					defer func() {
-						mux.RemoveStream(sid)
-						registry.Update(tunnelID, mux.StreamCount())
-						mux.WriteControl(fmt.Sprintf("close:%d", sid))
-					}()
-					buf := make([]byte, 4096)
-					for {
-						n, err := tcp.Read(buf)
-						if err != nil {
-							return
-						}
-						bw.WaitAndAllow(n)
-						if err := mux.WriteMuxData(sid, buf[:n]); err != nil {
-							return
-						}
-					}
-				}(sid, tcpConn)
-			} else if strings.HasPrefix(ctrl, "close:") {
-				var sid uint32
-				fmt.Sscanf(strings.TrimPrefix(ctrl, "close:"), "%d", &sid)
-				mux.RemoveStream(sid)
-				registry.Update(tunnelID, mux.StreamCount())
-				logger.Debug("Stream %d closed", sid)
-			}
-		} else if msgType == websocket.BinaryMessage {
-			// Multiplexed data: [4-byte streamID][payload]
-			if len(data) < 4 {
-				continue
-			}
-			sid := binary.BigEndian.Uint32(data[:4])
-			payload := data[4:]
-			stream := mux.GetStream(sid)
-			if stream != nil {
-				bw.WaitAndAllow(len(payload))
-				stream.TCPConn.Write(payload)
-			}
+		bw.WaitAndAllow(len(data))
+		if _, err := tcpConn.Write(data); err != nil {
+			return
 		}
 	}
 }

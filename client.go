@@ -290,7 +290,7 @@ func reconnectDelay(attempt int, base, max int) time.Duration {
 }
 
 // ============================================================
-// Local forward with auto-reconnect + multiplexing
+// Local forward with auto-reconnect (simple: 1 WS = 1 TCP)
 // ============================================================
 
 func runLocalForward(cfg Config, t Tunnel, done chan struct{}) {
@@ -302,7 +302,6 @@ func runLocalForward(cfg Config, t Tunnel, done chan struct{}) {
 	defer ln.Close()
 	logger.Info("Local forward: %s → %s (via %s)", t.Local, t.Target, cfg.Remote)
 
-	// Close listener on shutdown
 	go func() {
 		<-done
 		ln.Close()
@@ -343,12 +342,9 @@ func handleLocalConn(cfg Config, clientConn net.Conn, targetAddr string, done ch
 			continue
 		}
 
-		mux := NewMuxConn(wsConn)
-		defer mux.CloseAll()
-
 		// Send auth + command: token|local-forward|target
 		cmd := fmt.Sprintf("%s|local-forward|%s", cfg.Token, targetAddr)
-		if err := mux.WriteControl(cmd); err != nil {
+		if err := wsConn.WriteMessage(websocket.TextMessage, []byte(cmd)); err != nil {
 			wsConn.Close()
 			continue
 		}
@@ -363,35 +359,21 @@ func handleLocalConn(cfg Config, clientConn net.Conn, targetAddr string, done ch
 		if strings.HasPrefix(resp, "ERR|") {
 			logger.Error("Server rejected: %s", resp)
 			wsConn.Close()
-			return // don't retry on auth/permission error
+			return
 		}
 
-		sid := mux.NextStreamID()
-		mux.WriteControl(fmt.Sprintf("open:%d", sid))
-
-		// Now relay: client TCP ↔ mux stream
 		doneCh := make(chan struct{})
 
 		// WS → TCP
 		go func() {
 			defer close(doneCh)
 			for {
-				msgType, data, err := wsConn.ReadMessage()
+				_, data, err := wsConn.ReadMessage()
 				if err != nil {
 					return
 				}
-				if msgType == websocket.TextMessage {
-					ctrl := string(data)
-					if strings.HasPrefix(ctrl, "close:") {
-						return
-					}
-					continue
-				}
-				if msgType == websocket.BinaryMessage && len(data) >= 4 {
-					rsid := binary.BigEndian.Uint32(data[:4])
-					if rsid == sid {
-						clientConn.Write(data[4:])
-					}
+				if _, err := clientConn.Write(data); err != nil {
+					return
 				}
 			}
 		}()
@@ -402,17 +384,19 @@ func handleLocalConn(cfg Config, clientConn net.Conn, targetAddr string, done ch
 			for {
 				n, err := clientConn.Read(buf)
 				if err != nil {
-					mux.WriteControl(fmt.Sprintf("close:%d", sid))
 					wsConn.Close()
 					return
 				}
-				mux.WriteMuxData(sid, buf[:n])
+				if err := wsConn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+					wsConn.Close()
+					return
+				}
 			}
 		}()
 
 		<-doneCh
 		wsConn.Close()
-		return // connection done, don't reconnect for individual TCP connections
+		return
 	}
 }
 
