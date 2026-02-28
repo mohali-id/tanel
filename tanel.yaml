@@ -1,0 +1,15 @@
+# Client config
+remote: "ws://localhost:9000/ws"
+token: "fullaccess"
+tunnels:
+  - mode: local-forward
+    local: ":8080"
+    target: "127.0.0.1:3306"
+
+  - mode: remote-forward
+    expose: ":10000"
+    target: "10.10.1.1:3030"
+
+  - mode: local-forward
+    local: ":9090"
+    target: "192.168.0.110:7000"

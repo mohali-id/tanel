@@ -1,0 +1,18 @@
+# Server config
+listen: ":9000"
+tokens:
+  - value: "abcd1234"
+    modes: ["local-forward"]
+    targets:
+      - "127.0.0.1:3306"
+      - "192.168.0.110:7000"
+
+  - value: "efgh5678"
+    modes: ["remote-forward"]
+    targets:
+      - "10.10.1.1:3030"
+      - "192.168.3.10:9101"
+
+  - value: "fullaccess"
+    modes: ["local-forward", "remote-forward"]
+    targets: ["*"]
