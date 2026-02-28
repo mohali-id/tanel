@@ -28,6 +28,7 @@ import (
 type ServerConfig struct {
 	Listen   string        `yaml:"listen"`
 	LogLevel string        `yaml:"log_level"` // debug, info, warn, error
+	Prefix   string        `yaml:"prefix"`    // endpoint prefix, e.g. "socket" → /socket/ws
 	Tokens   []TokenConfig `yaml:"tokens"`
 }
 
@@ -365,6 +366,7 @@ var (
 	configPath = flag.String("config", "", "Path to server config YAML")
 	tokenFlag  = flag.String("token", "", "Single token via CLI (full access)")
 	logLevel   = flag.String("log-level", "info", "Log level: debug, info, warn, error")
+	prefixFlag = flag.String("prefix", "", "Endpoint prefix, e.g. 'socket' → /socket/ws")
 )
 
 var (
@@ -468,11 +470,20 @@ func main() {
 	registry = NewTunnelRegistry()
 	exposed = NewExposedListeners()
 
+	// Prefix
+	if *prefixFlag != "" {
+		config.Prefix = *prefixFlag
+	}
+	prefix := ""
+	if config.Prefix != "" {
+		prefix = "/" + strings.Trim(config.Prefix, "/")
+	}
+
 	// HTTP handlers
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", wsHandler)
-	mux.HandleFunc("/health", healthHandler)
-	mux.HandleFunc("/status", statusHandler)
+	mux.HandleFunc(prefix+"/ws", wsHandler)
+	mux.HandleFunc(prefix+"/health", healthHandler)
+	mux.HandleFunc(prefix+"/status", statusHandler)
 
 	server := &http.Server{
 		Addr:    *listenAddr,
@@ -490,7 +501,11 @@ func main() {
 		server.Close()
 	}()
 
-	logger.Info("Server listening on %s (%d token(s) registered)", *listenAddr, len(config.Tokens))
+	if prefix != "" {
+		logger.Info("Server listening on %s (prefix: %s, %d token(s))", *listenAddr, prefix, len(config.Tokens))
+	} else {
+		logger.Info("Server listening on %s (%d token(s) registered)", *listenAddr, len(config.Tokens))
+	}
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}

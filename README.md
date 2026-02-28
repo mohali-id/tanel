@@ -17,6 +17,7 @@ Dynamic TCP WebSocket Tunnel — port forwarding ala SSH -L / -R, built in Go.
 - **Dashboard/status**: endpoint `/status` untuk lihat tunnel aktif, koneksi, dan stats
 - **Graceful shutdown**: handle SIGINT/SIGTERM, tutup semua koneksi dengan rapi
 - **Logging levels**: debug, info, warn, error
+- **Endpoint prefix**: configurable prefix untuk semua endpoint (e.g. `/socket/ws`)
 - **Config via YAML atau CLI params**
 
 ## Struktur
@@ -34,13 +35,16 @@ go run server.go --config server.yaml
 
 ### Via CLI
 ```bash
-go run server.go --listen :9000 --token mysecrettoken --log-level debug
+go run server.go --listen :9000 --token mysecrettoken --log-level debug --prefix socket
 ```
+Token via CLI mendapat akses penuh (semua mode, semua target).
+Prefix opsional: `--prefix socket` → endpoint jadi `/socket/ws`, `/socket/health`, `/socket/status`.
 
 ### Format server.yaml
 ```yaml
 listen: ":9000"
 log_level: "info"
+prefix: ""  # optional, e.g. "socket" → /socket/ws
 tokens:
   - value: "abcd1234"
     modes: ["local-forward"]
@@ -103,9 +107,11 @@ tunnels:
 
 | Endpoint | Method | Deskripsi |
 |----------|--------|-----------|
-| `/ws` | GET | WebSocket tunnel |
-| `/health` | GET | Health check (status + uptime) |
-| `/status` | GET | Dashboard: tunnel aktif, koneksi per token, stats |
+| `[prefix]/ws` | GET | WebSocket tunnel |
+| `[prefix]/health` | GET | Health check (status + uptime) |
+| `[prefix]/status` | GET | Dashboard: tunnel aktif, koneksi per token, stats |
+
+Prefix default kosong (tanpa prefix). Jika `prefix: "socket"`, endpoint jadi `/socket/ws`, `/socket/health`, `/socket/status`.
 
 ## Kebutuhan
 - Go ≥ 1.19

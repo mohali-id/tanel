@@ -1,6 +1,7 @@
 # Server config
 listen: ":9000"
 log_level: "info"
+prefix: ""  # endpoint prefix, e.g. "socket" → /socket/ws, /socket/health, /socket/status
 tokens:
   - value: "abcd1234"
     modes: ["local-forward"]
