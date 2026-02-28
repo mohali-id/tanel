@@ -1,14 +1,18 @@
 # Server config
 listen: ":9000"
+log_level: "info"
 tokens:
   - value: "abcd1234"
     modes: ["local-forward"]
+    max_connections: 5
+    bandwidth_limit: 1048576  # 1MB/s
     targets:
       - "127.0.0.1:3306"
       - "192.168.0.110:7000"
 
   - value: "efgh5678"
     modes: ["remote-forward"]
+    max_connections: 3
     targets:
       - "10.10.1.1:3030"
       - "192.168.3.10:9101"
@@ -16,3 +20,10 @@ tokens:
   - value: "fullaccess"
     modes: ["local-forward", "remote-forward"]
     targets: ["*"]
+    # no max_connections = unlimited
+    # no bandwidth_limit = unlimited
+
+  - value: "temptoken"
+    modes: ["local-forward"]
+    targets: ["*"]
+    expires_at: "2026-12-31T23:59:59+07:00"

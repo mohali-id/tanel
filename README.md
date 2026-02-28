@@ -3,18 +3,27 @@
 Dynamic TCP WebSocket Tunnel — port forwarding ala SSH -L / -R, built in Go.
 
 ## Fitur
-- Local forward (SSH -L): listen port lokal, relay ke target TCP via server
-- Remote forward (SSH -R): server expose port, relay ke endpoint lokal di client
-- Autentikasi token: setiap koneksi wajib kirim token
-- Multi-token: server bisa daftarkan banyak token
-- Permission per token: batasi mode (local-forward / remote-forward / keduanya) dan whitelist target IP:port
-- Config via YAML atau CLI params
+- **Local forward** (SSH -L): listen port lokal, relay ke target TCP via server
+- **Remote forward** (SSH -R): server expose port, relay ke endpoint lokal di client
+- **Token authentication**: setiap koneksi wajib kirim token
+- **Multi-token**: server bisa daftarkan banyak token dengan permission berbeda
+- **Permission per token**: batasi mode (local/remote/keduanya) dan whitelist target IP:port
+- **Connection limit**: batasi jumlah koneksi aktif per token
+- **Bandwidth limit**: throttle bytes/sec per token
+- **Token expiry**: token bisa punya masa berlaku (expires_at, format RFC3339)
+- **Multiplexing**: satu WebSocket connection bisa handle banyak TCP session
+- **Auto-reconnect**: client otomatis reconnect dengan exponential backoff
+- **Health check**: endpoint `/health` untuk monitoring
+- **Dashboard/status**: endpoint `/status` untuk lihat tunnel aktif, koneksi, dan stats
+- **Graceful shutdown**: handle SIGINT/SIGTERM, tutup semua koneksi dengan rapi
+- **Logging levels**: debug, info, warn, error
+- **Config via YAML atau CLI params**
 
 ## Struktur
-- `server.go` — WebSocket server, validasi token, relay TCP
-- `client.go` — Multi-tunnel launcher, baca YAML atau CLI params
-- `server.yaml` — Contoh config server (token, mode, target restrictions)
-- `tanel.yaml` — Contoh config client (remote, token, tunnels)
+- `server.go` — WebSocket server, validasi token, relay TCP, multiplexing
+- `client.go` — Multi-tunnel launcher, auto-reconnect, multiplexing
+- `server.yaml` — Contoh config server
+- `tanel.yaml` — Contoh config client
 
 ## Server
 
@@ -25,28 +34,36 @@ go run server.go --config server.yaml
 
 ### Via CLI
 ```bash
-go run server.go --listen :9000 --token mysecrettoken
+go run server.go --listen :9000 --token mysecrettoken --log-level debug
 ```
-Token via CLI mendapat akses penuh (semua mode, semua target).
 
 ### Format server.yaml
 ```yaml
 listen: ":9000"
+log_level: "info"
 tokens:
   - value: "abcd1234"
     modes: ["local-forward"]
+    max_connections: 5
+    bandwidth_limit: 1048576  # 1MB/s
     targets:
       - "127.0.0.1:3306"
       - "192.168.0.110:7000"
 
   - value: "efgh5678"
     modes: ["remote-forward"]
+    max_connections: 3
     targets:
       - "10.10.1.1:3030"
 
   - value: "fullaccess"
     modes: ["local-forward", "remote-forward"]
-    targets: ["*"]   # semua target dibolehkan
+    targets: ["*"]
+
+  - value: "temptoken"
+    modes: ["local-forward"]
+    targets: ["*"]
+    expires_at: "2026-12-31T23:59:59+07:00"
 ```
 
 ## Client
@@ -69,6 +86,9 @@ go run client.go --remote ws://host:9000/ws --token mytoken --mode remote-forwar
 ```yaml
 remote: "ws://host:9000/ws"
 token: "fullaccess"
+log_level: "info"
+reconnect_delay: 5
+reconnect_max_wait: 60
 tunnels:
   - mode: local-forward
     local: ":8080"
@@ -77,11 +97,15 @@ tunnels:
   - mode: remote-forward
     expose: ":10000"
     target: "10.10.1.1:3030"
-
-  - mode: local-forward
-    local: ":9090"
-    target: "192.168.0.110:7000"
 ```
+
+## Endpoints
+
+| Endpoint | Method | Deskripsi |
+|----------|--------|-----------|
+| `/ws` | GET | WebSocket tunnel |
+| `/health` | GET | Health check (status + uptime) |
+| `/status` | GET | Dashboard: tunnel aktif, koneksi per token, stats |
 
 ## Kebutuhan
 - Go ≥ 1.19

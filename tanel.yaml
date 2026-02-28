@@ -1,6 +1,9 @@
 # Client config
 remote: "ws://localhost:9000/ws"
 token: "fullaccess"
+log_level: "info"
+reconnect_delay: 5      # seconds
+reconnect_max_wait: 60  # seconds
 tunnels:
   - mode: local-forward
     local: ":8080"
