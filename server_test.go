@@ -423,43 +423,56 @@ func TestWSLocalForwardSuccess(t *testing.T) {
 }
 
 func TestWSConnectionLimit(t *testing.T) {
-	s := setupTestServer()
-	defer s.Close()
-
-	// Start a TCP listener so the first connection can succeed
-	echoLn, _ := net.Listen("tcp", "127.0.0.1:7777")
-	if echoLn != nil {
-		defer echoLn.Close()
-		go func() {
-			for {
-				c, err := echoLn.Accept()
-				if err != nil {
-					return
-				}
-				go func(c net.Conn) {
-					defer c.Close()
-					io.Copy(io.Discard, c)
-				}(c)
-			}
-		}()
+	// Start a TCP listener on dynamic port
+	echoLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer echoLn.Close()
+	echoAddr := echoLn.Addr().String()
+
+	go func() {
+		for {
+			c, err := echoLn.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				io.Copy(io.Discard, c)
+			}(c)
+		}
+	}()
+
+	// Override config with limitedtoken pointing to dynamic port
+	config.Tokens = []TokenConfig{
+		{
+			Value:          "limitedtoken",
+			Modes:          []string{"local-forward"},
+			Targets:        []string{echoAddr},
+			MaxConnections: 1,
+		},
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", wsHandler)
+	s := httptest.NewServer(mux)
+	defer s.Close()
 
 	// First connection with limitedtoken (max 1)
 	wsURL := "ws" + strings.TrimPrefix(s.URL, "http") + "/ws"
 	conn1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
-	conn1.WriteMessage(websocket.TextMessage, []byte("limitedtoken|local-forward|127.0.0.1:7777"))
+	conn1.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("limitedtoken|local-forward|%s", echoAddr)))
 	_, msg1, _ := conn1.ReadMessage()
 
 	if string(msg1) != "OK|connected" {
-		// If TCP 7777 not available, skip
 		conn1.Close()
-		t.Skip("TCP 7777 not available, skipping connection limit test")
-		return
+		t.Fatalf("expected OK|connected, got: %s", string(msg1))
 	}
 
 	// Second connection should be rejected
 	conn2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
-	conn2.WriteMessage(websocket.TextMessage, []byte("limitedtoken|local-forward|127.0.0.1:7777"))
+	conn2.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("limitedtoken|local-forward|%s", echoAddr)))
 	_, msg2, _ := conn2.ReadMessage()
 	conn1.Close()
 	conn2.Close()
