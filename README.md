@@ -118,5 +118,37 @@ Prefix default kosong (tanpa prefix). Jika `prefix: "socket"`, endpoint jadi `/s
 - github.com/gorilla/websocket
 - gopkg.in/yaml.v3
 
+## Build
+
+### Build binary
+```bash
+go build -o tanel-server server.go
+go build -o tanel-client client.go
+```
+
+Atau build semua package:
+```bash
+go build ./...
+```
+
+## Git Workflow
+
+### Commit perubahan
+```bash
+git add .
+git commit -m "feat: deskripsi perubahan"
+```
+
+### Push ke remote
+```bash
+git push origin main
+```
+
+Jika pakai semantic release tag manual:
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
 ---
 Generated oleh Bian Solt
