@@ -3,6 +3,8 @@ name: Test, Build and Release
 on:
   push:
     branches: [main]
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -22,12 +24,15 @@ jobs:
       - name: Run tests
         run: go test -v -count=1 ./...
 
-  build:
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -52,63 +57,11 @@ jobs:
           GOOS=windows GOARCH=amd64 go build -o tanel-server-windows-amd64.exe server.go
           GOOS=windows GOARCH=amd64 go build -o tanel-windows-amd64.exe client.go
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: binaries
-          path: |
-            tanel-server-*
-            tanel-linux-*
-            tanel-darwin-*
-            tanel-windows-*
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get latest tag and bump version
-        id: get_tag
-        run: |
-          latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
-          if [ -z "$latest" ]; then
-            major=0; minor=0; patch=0
-          else
-            major=$(echo $latest | cut -d. -f1 | tr -d v)
-            minor=$(echo $latest | cut -d. -f2)
-            patch=$(echo $latest | cut -d. -f3)
-          fi
-
-          commit_msg=$(git log -1 --pretty=%B)
-          if echo "$commit_msg" | grep -qi '#major'; then
-            major=$((major + 1)); minor=0; patch=0
-          elif echo "$commit_msg" | grep -qi '#minor'; then
-            minor=$((minor + 1)); patch=0
-          else
-            patch=$((patch + 1))
-          fi
-
-          echo "version=v${major}.${minor}.${patch}" >> $GITHUB_OUTPUT
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: binaries
-
-      - name: Create tag
-        run: |
-          git tag ${{ steps.get_tag.outputs.version }}
-          git push origin ${{ steps.get_tag.outputs.version }}
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.get_tag.outputs.version }}
-          name: Release ${{ steps.get_tag.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           generate_release_notes: true
           files: |
             tanel-server-linux-amd64
